@@ -2,10 +2,16 @@
 -- Lua Script Wireshark Dissector
 -- 
 -- Please see end of file for rules and regulations
+--
+-- To automatically display instrument information, place the MXOPInstrumentDirectory.csv file into instruments/Memx.Options.MemoirDepth.Sbe.v1.6.a directory.
 -----------------------------------------------------------------------
 
 -- Memx Options MemoirDepth Sbe 1.6.a Protocol
 local memx_options_memoirdepth_sbe_v1_6_a = Proto("Memx.Options.MemoirDepth.Sbe.v1.6.a.Lua", "Memx Options MemoirDepth Sbe 1.6.a")
+
+os_name = package.config:sub(1, 1) == '\\' and 'Windows' or 'Unix-like'
+
+instrument = {}
 
 -- Component Tables
 local show = {}
@@ -96,6 +102,7 @@ show.corrected_trade_message = true
 show.instrument_directory_message = true
 show.message = true
 show.options_instrument_status_message = true
+show.option_info_from_instrument = true
 show.order_added_extended_message = true
 show.order_added_long_message = true
 show.order_added_short_message = true
@@ -121,6 +128,7 @@ memx_options_memoirdepth_sbe_v1_6_a.prefs.show_instrument_directory_message = Pr
 memx_options_memoirdepth_sbe_v1_6_a.prefs.show_message = Pref.bool("Show Message", show.message, "Parse and add Message to protocol tree")
 memx_options_memoirdepth_sbe_v1_6_a.prefs.show_options_instrument_status_message = Pref.bool("Show Options Instrument Status Message", show.options_instrument_status_message, "Parse and add Options Instrument Status Message to protocol tree")
 memx_options_memoirdepth_sbe_v1_6_a.prefs.show_order_added_extended_message = Pref.bool("Show Order Added Extended Message", show.order_added_extended_message, "Parse and add Order Added Extended Message to protocol tree")
+memx_options_memoirdepth_sbe_v1_6_a.prefs.show_option_info_from_instrument = Pref.bool("Show Option Information From Instrument", show.option_info_from_instrument, "Parse and add Option Information from Instrument to protocol tree")
 memx_options_memoirdepth_sbe_v1_6_a.prefs.show_order_added_long_message = Pref.bool("Show Order Added Long Message", show.order_added_long_message, "Parse and add Order Added Long Message to protocol tree")
 memx_options_memoirdepth_sbe_v1_6_a.prefs.show_order_added_short_message = Pref.bool("Show Order Added Short Message", show.order_added_short_message, "Parse and add Order Added Short Message to protocol tree")
 memx_options_memoirdepth_sbe_v1_6_a.prefs.show_order_deleted_message = Pref.bool("Show Order Deleted Message", show.order_deleted_message, "Parse and add Order Deleted Message to protocol tree")
@@ -159,6 +167,10 @@ function memx_options_memoirdepth_sbe_v1_6_a.prefs_changed()
   end
   if show.instrument_directory_message ~= memx_options_memoirdepth_sbe_v1_6_a.prefs.show_instrument_directory_message then
     show.instrument_directory_message = memx_options_memoirdepth_sbe_v1_6_a.prefs.show_instrument_directory_message
+    changed = true
+  end
+  if show.option_info_from_instrument ~= memx_options_memoirdepth_sbe_v1_6_a.prefs.show_option_info_from_instrument then
+    show.option_info_from_instrument = memx_options_memoirdepth_sbe_v1_6_a.prefs.show_option_info_from_instrument
     changed = true
   end
   if show.message ~= memx_options_memoirdepth_sbe_v1_6_a.prefs.show_message then
@@ -236,10 +248,152 @@ function memx_options_memoirdepth_sbe_v1_6_a.prefs_changed()
   end
 end
 
+-----------------------------------------------------------------------
+-- Methods
+-----------------------------------------------------------------------
+
+function get_file_path()
+  local dissector_version = '\\Memx.Options.MemoirDepth.Sbe.v1.6.a'
+  local file_name = 'MXOPInstrumentDirectory.csv'
+  local file_path
+  if os_name == 'Windows' then	
+    local working_directory = os.getenv('APPDATA') .. '\\Wireshark'
+	file_path = working_directory..'\\instruments'
+	
+    if not instrument_files_made then --Generate instrument folders if needed
+      local command = 'mkdir "'..file_path..'"'
+	  os.execute(command)
+	  file_path = file_path..dissector_version
+      local command = 'mkdir "'..file_path..'"'
+	  os.execute(command)
+	  instrument_files_made = true
+	end
+	file_path = working_directory..'\\instruments'..dissector_version
+  else
+    local file = io.popen("uname -s")
+    local uname_output = file:read("*a"):gsub("\n", ""):gsub("\r", "")
+    file:close()
+    if uname_output == "Darwin" then
+        --MacOS code here
+    else 
+        --Linux code here
+    end
+  end
+  return file_path..file_name
+end
+
+function write_to_csv(file_name, row)
+  file = io.open(file_name, "a+")
+  local security_id = row[7]
+  local exists = false
+
+  for line in file:lines() do
+    local current_security_id = line:match("^(.-),")
+    if current_security_id == tostring(security_id) then
+	  line = table.concat(row, ",")  -- If security_id already exists, replace the existing row
+      exists = true
+      break
+    end
+  end
+
+  file:close()
+
+  if not exists then
+    -- If security_id does not exist, append the new row
+    file = io.open(file_name, "a+")
+    file:write(table.concat(row, ",") .. "\n")
+    file:close()
+  end
+end
+
+function instrument_files_generated()  --Detects instrument files so that they're not regenerated every run
+  local result = false
+  if os_name == 'Windows' then
+    local path = os.getenv('APPDATA') .. '\\Wireshark\\instruments\\Memx.Options.MemoirDepth.Sbe.v1.6.a'
+	if is_directory(path) then
+	  result = true
+	end
+  else
+    local file = io.popen("uname -s")
+    local uname_output = file:read("*a"):gsub("\n", ""):gsub("\r", "")
+    file:close()
+    if uname_output == "Darwin" then
+        --MacOS code here
+    else 
+        --Linux code here
+    end
+  end
+  return result
+end
+
+function generate_instrument_table()
+  local path = get_file_path()
+  if file_exists(path) then
+    local first_line = true
+    file = io.open(path, "r")
+	for line in file:lines() do
+	  if first_line then
+	    first_line = false
+	  else
+	    local row = split(line, ",")
+        local security_id = tostring(row[7])
+        local osi_root = tostring(row[6])
+        local strike_put_call = tostring(row[4])
+        local maturity_date = tonumber(row[3])
+        local strike_price = tonumber(row[5])
+		local options_product_type = tostring(row[8])
+		local underlier = tostring(row[1])
+		local is_test_symbol = tostring(row[11])
+        if security_id ~= nil then
+          instrument[security_id] = {osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol}
+        end
+	  end
+	end
+  end
+end
+
+function is_directory(path)
+    local command
+    if os_name == 'Windows' then
+        command = 'dir "' .. path .. '" 2>nul >nul'
+    else
+        command = '[ -d "' .. path .. '" ]'
+    end
+    local result = os.execute(command)
+    return result == 0
+end
+
+function file_exists(path)
+    local file = io.open(path, "r")
+    if file then
+        file:close()
+        return true
+    else
+        return false
+    end
+end
+
+function split(str, sep)
+    local result = {}
+    for field in string.gmatch(str, "([^"..sep.."]+)") do
+        table.insert(result, field)
+    end
+    return result
+end
+
+instrument_files_made = instrument_files_generated()
+generate_instrument_table()
 
 -----------------------------------------------------------------------
 -- Dissect Memx Options MemoirDepth Sbe 1.6.a
 -----------------------------------------------------------------------
+
+--Display: Instrument Info
+memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info = function(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+  local display = 'OSI Root: '..osi_root..'\nStrike Put Call: '..strike_put_call..'\nMaturity Date: '..maturity_date..'\nStrike Price: '..strike_price
+  display = display..'\nOptions Product Type: '..options_product_type..'\nUnderlier: '..underlier..'\nIs Test Symbol: '..is_test_symbol
+  return display
+end
 
 -- Size: Symbol
 memx_options_memoirdepth_sbe_v1_6_a_size_of.symbol = 8
@@ -327,6 +481,14 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.clear_book_message_fields = function
 
   -- Padding 7
   index, padding_7 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_7(buffer, index, packet, parent)
+  
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
 
   return index
 end
@@ -569,6 +731,14 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.order_executed_message_fields = func
 
   -- Padding 14
   index, padding_14 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_14(buffer, index, packet, parent)
+  
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
 
   return index
 end
@@ -706,6 +876,14 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.order_reduced_message_fields = funct
 
   -- Padding 14
   index, padding_14 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_14(buffer, index, packet, parent)
+  
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
 
   return index
 end
@@ -763,6 +941,14 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.order_deleted_message_fields = funct
 
   -- Padding 7
   index, padding_7 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_7(buffer, index, packet, parent)
+  
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
 
   return index
 end
@@ -836,6 +1022,13 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.order_added_extended_message_fields 
   -- Padding 14
   index, padding_14 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_14(buffer, index, packet, parent)
 
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
   return index
 end
 
@@ -902,6 +1095,14 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.order_added_long_message_fields = fu
 
   -- Padding 14
   index, padding_14 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_14(buffer, index, packet, parent)
+  
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
 
   return index
 end
@@ -1015,6 +1216,14 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.order_added_short_message_fields = f
 
   -- Padding 8
   index, padding_8 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_8(buffer, index, packet, parent)
+  
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
 
   return index
 end
@@ -1246,6 +1455,14 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.corrected_trade_message_fields = fun
 
   -- Padding 21
   index, padding_21 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_21(buffer, index, packet, parent)
+  
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
 
   return index
 end
@@ -1308,6 +1525,14 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.broken_trade_message_fields = functi
 
   -- Padding 14
   index, padding_14 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_14(buffer, index, packet, parent)
+  
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
 
   return index
 end
@@ -1578,6 +1803,14 @@ memx_options_memoirdepth_sbe_v1_6_a_dissect.options_instrument_status_message_fi
 
   -- Padding 7
   index, padding_7 = memx_options_memoirdepth_sbe_v1_6_a_dissect.padding_7(buffer, index, packet, parent)
+  
+  if show.option_info_from_instrument and instrument[security_id] ~= nil then
+    osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol = instrument[security_id]
+	local length = memx_options_memoirdepth_sbe_v1_6_a_size_of.order_added_extended_message(buffer, offset)
+	local range = buffer(offset, length)
+	display = memx_options_memoirdepth_sbe_v1_6_a_display.instrument_info(osi_root, strike_put_call, maturity_date, strike_price,options_product_type, underlier, is_test_symbol)
+    parent = parent:add(memx_options_memoirdepth_sbe_v1_6_a.fields.symbol, range, display)
+  end
 
   return index
 end
